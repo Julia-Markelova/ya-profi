@@ -6,73 +6,97 @@ from flask_restx import Api
 from flask_restx import Resource
 from flask_restx import fields
 
-from app.catalog import Catalog
-from app import controllers
+from app.data_reader import DataReader
 from app.model import serialize
+from app.user_manager import UserManager
 
 flask_app = Flask(__name__)
 app = Api(app=flask_app)
-catalog = Catalog()
+user_manager = UserManager()
+data_reader = DataReader()
 
 
-products = app.namespace('products', description='Product operations')
-categories = app.namespace('categories', description='Category operations')
+login = app.namespace('login', description='Login')
+files = app.namespace('files', description='File operations')
+db = app.namespace('db', description='Database operations')
+data = app.namespace('data', description='Data operations')
 
 
-product_create = app.model('ProductCreate', {
-    'name': fields.String(required=True, description='Product name'),
-    'description': fields.String(required=True, description='Product details'),
-    'category_id': fields.Integer(required=True, description='Category id')
+file_source = app.model('FileSource', {
+    'type': fields.String(required=True, description='The file type', enum=['csv', 'xls']),
+    'path': fields.String(required=True, description='Path'),
+    'offset': fields.Integer(required=True, description='Number of rows to offset'),
+    'delimiter': fields.String(required=False, description='Delimiter')
 })
 
-product = app.model('ProductModel', {
-    'id': fields.Integer(required=True, description='Product id'),
-    'name': fields.String(required=True, description='Product name'),
-    'description': fields.String(required=True, description='Product details'),
-    'category_id': fields.Integer(required=True, description='Category id')
+db_source = app.model('DbSource', {
+    'connection_url': fields.String(required=True, description='Database URL'),
+    'table': fields.String(required=True, description='Table'),
+    'query': fields.String(required=False, description='Query')
+})
+
+user = app.model('UserCred', {
+    'login': fields.String(required=True, description='login'),
+    'password': fields.String(required=True, description='password'),
 })
 
 
-@products.route('/')
-class ProductView(Resource):
+@login.route('/')
+class LoginView(Resource):
 
-    @products.expect(product_create)
-    @products.doc('Create product')
-    @products.response(HTTPStatus.CREATED, 'Success')
-    @products.response(HTTPStatus.BAD_REQUEST, 'Validation Error')
-    @products.response(HTTPStatus.INTERNAL_SERVER_ERROR, 'Internal server error')
+    @login.expect(user)
+    @login.doc('Login')
+    @login.response(HTTPStatus.OK, 'Success')
+    @login.response(HTTPStatus.UNAUTHORIZED, 'Wrong credentials')
+    @login.response(HTTPStatus.BAD_REQUEST, 'Validation Error')
+    @login.response(HTTPStatus.INTERNAL_SERVER_ERROR, 'Internal server error')
     def post(self):
         try:
             data = request.json
-            if 'name' not in data or 'description' not in data or 'category_id' not in data:
+            if 'login' not in data or 'password' not in data:
                 return 'Invalid parameters', HTTPStatus.BAD_REQUEST
-            p = controllers.add_product(catalog, data['name'], data['description'], data['category_id'])
-            return serialize(p), HTTPStatus.CREATED
+            u = user_manager.authorize(data['login'], data['password'])
+            return serialize(u), HTTPStatus.OK
         except ValueError:
-            return f'No such category', HTTPStatus.BAD_REQUEST
+            return f'Wrong creds', HTTPStatus.UNAUTHORIZED
         except Exception as e:
             return f'Unexpected error: {e}', HTTPStatus.INTERNAL_SERVER_ERROR
 
-    @products.doc('Get list of products')
-    @products.marshal_list_with(product, code=HTTPStatus.OK)
-    def get(self):
-        p = controllers.get_products(catalog)
-        return p, HTTPStatus.OK
 
+@files.route('/<user_id>/read')
+class Files(Resource):
 
-@products.route('/<id>')
-class ProductIdView(Resource):
-
-    @products.doc('Get product by id')
-    @products.response(HTTPStatus.OK, 'Success')
-    @products.response(HTTPStatus.NOT_FOUND, 'No such product')
-    @products.response(HTTPStatus.INTERNAL_SERVER_ERROR, 'Internal server error')
-    def get(self, id):
+    @files.expect(file_source)
+    @files.doc('Read data from file source')
+    @files.response(HTTPStatus.OK, 'Success')
+    @files.response(HTTPStatus.INTERNAL_SERVER_ERROR, 'Internal server error')
+    def post(self, user_id):
         try:
-            p = controllers.get_product_by_id(catalog, int(id))
-            return serialize(p), HTTPStatus.OK
+            data = request.json
+            df = data_reader.read_from_file(data['path'], data['offset'], data['delimiter'])
+            user_manager.add_data(user_id, df)
+            return 'Data read', HTTPStatus.OK
         except ValueError:
-            return 'No such product', HTTPStatus.NOT_FOUND
+            return 'No such user', HTTPStatus.NOT_FOUND
+        except Exception as e:
+            return f'Unexpected error: {e}', HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@db.route('/<user_id>/read')
+class Db(Resource):
+
+    @db.expect(db_source)
+    @db.doc('Read data from db source')
+    @db.response(HTTPStatus.OK, 'Success')
+    @db.response(HTTPStatus.INTERNAL_SERVER_ERROR, 'Internal server error')
+    def post(self, user_id):
+        try:
+            data = request.json
+            df = data_reader.read_from_database(data['connection_url'], data['table'], data['query'])
+            user_manager.add_data(user_id, df)
+            return 'Data read', HTTPStatus.OK
+        except ValueError:
+            return 'No such user', HTTPStatus.NOT_FOUND
         except Exception as e:
             return f'Unexpected error: {e}', HTTPStatus.INTERNAL_SERVER_ERROR
 

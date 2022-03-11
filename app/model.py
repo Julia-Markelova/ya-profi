@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List
 from typing import Type
 from typing import TypeVar
 from typing import Union
@@ -9,29 +8,10 @@ from dataclasses_json import dataclass_json
 
 @dataclass_json
 @dataclass
-class Product:
-    id: int
-    name: str
-    description: str
-    category_id: int
-
-
-@dataclass_json
-@dataclass
-class Category:
-    id: int
-    name: str
-    description: str
-    parent_id: int
-
-
-@dataclass
-@dataclass_json
-class CategoryInfo:
-    id: int
-    name: str
-    description: str
-    sub_categories: List['CategoryInfo']
+class User:
+    id: str
+    login: str
+    password: str
 
 
 T = TypeVar('T')
