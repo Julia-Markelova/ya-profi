@@ -1,6 +1,7 @@
 from typing import Optional
 
 import pandas as pd
+import sqlite3 as sql
 
 
 class DataReader:
@@ -27,7 +28,7 @@ class DataReader:
 
     def read_from_database(self, url, table, query=None) -> pd.DataFrame:
         try:
-            conn = ...
+            conn = sql.connect(url)
             if query is None:
                 query = f"SELECT * FROM {table}"
             df = pd.read_sql_query(query, conn)
